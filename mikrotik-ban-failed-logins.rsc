@@ -1,0 +1,50 @@
+# MikroTik log-based SSH/Winbox ban — RouterOS 7.x final
+# Winbox: System -> Scripts -> ban-failed-logins -> replace Source
+
+:global lastLogIdx
+:local banList "login-failed-ban"
+:local strikeList "login-strike"
+:local trustList "mgmt_trusted"
+:local maxAttempts 5
+:local banTimeout 1d
+:if ([:typeof $lastLogIdx] = "nothing") do={ :set lastLogIdx "" }
+:local foundLast 0
+:foreach logIdx in=[/log find where topics~"critical" and message~"login failure for user"] do={
+  :if ($logIdx = $lastLogIdx) do={ :set foundLast 1 }
+}
+:if ($lastLogIdx != "" && $foundLast = 0) do={ :set lastLogIdx "" }
+:local processNew 0
+:if ($lastLogIdx = "") do={ :set processNew 1 }
+:foreach logIdx in=[/log find where topics~"critical" and message~"login failure for user"] do={
+  :if ($processNew = 0) do={
+    :if ($logIdx = $lastLogIdx) do={ :set processNew 1 }
+  } else={
+    :local logMsg [/log get $logIdx message]
+    :local posFrom [:find $logMsg " from "]
+    :local posVia [:find $logMsg " via "]
+    :if ([:typeof $posFrom] != "nothing" && [:typeof $posVia] != "nothing") do={
+      :local srcAddr [:pick $logMsg ($posFrom + 6) $posVia]
+      :do { :set srcAddr [:tostr [:toip $srcAddr]] } on-error={ :set srcAddr "" }
+      :if ($srcAddr != "" && $srcAddr != "0.0.0.0" && $srcAddr != "127.0.0.1") do={
+        :if ([/ip firewall address-list find list=$trustList address=$srcAddr] = "") do={
+          :if ([/ip firewall address-list find list=$banList address=$srcAddr] = "") do={
+            :local attemptNum 1
+            :local strikeEntry [/ip firewall address-list find list=$strikeList address=$srcAddr]
+            :if ($strikeEntry != "") do={
+              :set attemptNum [:tonum [/ip firewall address-list get $strikeEntry comment]]
+              :set attemptNum ($attemptNum + 1)
+              /ip firewall address-list remove $strikeEntry
+            }
+            :if ($attemptNum >= $maxAttempts) do={
+              /ip firewall address-list add list=$banList address=$srcAddr timeout=$banTimeout comment="autoban"
+              :log warning ("BANNED: $srcAddr")
+            } else={
+              /ip firewall address-list add list=$strikeList address=$srcAddr timeout=1h comment="$attemptNum"
+            }
+          }
+        }
+      }
+    }
+    :set lastLogIdx $logIdx
+  }
+}
