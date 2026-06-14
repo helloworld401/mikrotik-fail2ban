@@ -175,9 +175,13 @@ Timeout для `login-strike` — **1 час** (`timeout=1h` в скрипте).
 
 ---
 
-## Рекомендуется: ограничить SSH/Winbox
+## Рекомендации по hardening
 
-Помимо log-based ban — ограничить, кто может подключаться:
+Помимо log-based ban — сузить поверхность атаки на CHR в интернете.
+
+### Ограничить SSH и Winbox по адресам
+
+Разрешить управление только с доверенных сетей/IP (подставьте свои значения):
 
 ```routeros
 /ip service
@@ -185,15 +189,52 @@ set ssh address=YOUR_LAN_SUBNET,YOUR_OFFICE_IP/32,YOUR_MOBILE_IP/32
 set winbox address=YOUR_LAN_SUBNET,YOUR_OFFICE_IP/32,YOUR_MOBILE_IP/32
 ```
 
+### Отключить неиспользуемые сервисы
+
+Telnet, FTP, WebFig, API — лишние точки входа; на публичном CHR их лучше выключить:
+
+```routeros
+/ip service
+set telnet disabled=yes
+set ftp disabled=yes
+set www disabled=yes
+set api disabled=yes
+set api-ssl disabled=yes
+```
+
+### Отключить обнаружение соседей (MNDP/CDP)
+
+Иначе роутер «светится» в сети — соседи видят его в Winbox/Neighbors:
+
+```routeros
+/ip neighbor discovery-settings
+set discover-interface-list=none
+```
+
+### Ограничить MAC Winbox и MAC ping
+
+Блокирует подключение к роутеру по MAC-адресу с любого интерфейса (обход IP-firewall):
+
+```routeros
+/tool mac-server
+set allowed-interface-list=none
+/tool mac-server mac-winbox
+set allowed-interface-list=none
+/tool mac-server ping
+set enabled=no
+```
+
+> Если нужен Winbox по MAC с LAN — вместо `none` укажите список интерфейсов, например `LAN`, и добавьте интерфейсы в **Interface List**.
+
 ---
 
 ## Troubleshooting
 
 | Симптом | Причина | Решение |
 |---------|---------|---------|
-| Списки пустые после атак | Скрипт запустился до появления записей в логе | Подождать 1–2 мин или `run` вручную |
-| Сработало раз — потом тишина | Старый баг `lastLogIdx` (исправлен) | Обновить тело скрипта |
-| Мусорный адрес в `login-strike` | Старый фильтр ловил исходник скрипта | Текущий скрипт с `topics~"critical"` |
+| Списки пустые после атак | Скрипт запустился до появления записей в логе | Подождать 1–2 мин или `/system script run ban-failed-logins` |
+| Новые атаки не учитываются | Scheduler выключен или скрипт с флагом `I` | `/system scheduler print detail`; проверить Source в Winbox |
+| Мусорный адрес в `login-strike` | В лог попали не те строки | Фильтр `topics~"critical" and message~"login failure for user"` |
 | CHR: флаг `I - INVALID` | Обрезанная вставка через терминал | Winbox или import `.rsc` |
 
 ---
@@ -377,9 +418,13 @@ Strike list timeout is fixed at **1 hour** in the script (`timeout=1h` on `login
 
 ---
 
-## Recommended: restrict management services
+## Recommended hardening
 
-In addition to log-based ban, limit who can connect to SSH/Winbox:
+In addition to log-based ban — reduce the attack surface on a public-facing CHR.
+
+### Restrict SSH and Winbox by address
+
+Allow management only from trusted subnets/IPs (replace placeholders):
 
 ```routeros
 /ip service
@@ -387,15 +432,52 @@ set ssh address=YOUR_LAN_SUBNET,YOUR_OFFICE_IP/32,YOUR_MOBILE_IP/32
 set winbox address=YOUR_LAN_SUBNET,YOUR_OFFICE_IP/32,YOUR_MOBILE_IP/32
 ```
 
+### Disable unused services
+
+Telnet, FTP, WebFig, and API are extra entry points — disable them on a public CHR:
+
+```routeros
+/ip service
+set telnet disabled=yes
+set ftp disabled=yes
+set www disabled=yes
+set api disabled=yes
+set api-ssl disabled=yes
+```
+
+### Disable neighbor discovery (MNDP/CDP)
+
+Otherwise the router advertises itself on the network — visible in Winbox Neighbors:
+
+```routeros
+/ip neighbor discovery-settings
+set discover-interface-list=none
+```
+
+### Restrict MAC Winbox and MAC ping
+
+Prevents layer-2 access to the router from any interface (bypassing IP firewall):
+
+```routeros
+/tool mac-server
+set allowed-interface-list=none
+/tool mac-server mac-winbox
+set allowed-interface-list=none
+/tool mac-server ping
+set enabled=no
+```
+
+> If you need MAC Winbox from LAN only — use an interface list (e.g. `LAN`) instead of `none` and assign interfaces under **Interface Lists**.
+
 ---
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Lists empty after attacks | Script ran before log entries appeared | Wait 1–2 min or run script manually |
-| Worked once, then stopped | Old `lastLogIdx` bug (fixed in current script) | Update script body; auto-reset is built in |
-| Garbage address in `login-strike` | Old filter matched script source in log | Use current script with `topics~"critical"` |
+| Lists empty after attacks | Script ran before log entries appeared | Wait 1–2 min or `/system script run ban-failed-logins` |
+| New attacks not counted | Scheduler disabled or script flag `I` | `/system scheduler print detail`; verify Source in Winbox |
+| Garbage address in `login-strike` | Wrong log lines matched | Filter: `topics~"critical" and message~"login failure for user"` |
 | CHR shows `I - INVALID` on script | Terminal paste truncated closing `}` | Paste via Winbox or import `.rsc` |
 
 ---
